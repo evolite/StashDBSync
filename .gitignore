@@ -1,0 +1,4 @@
+.fallow/
+__pycache__/
+*.pyc
+.venv/

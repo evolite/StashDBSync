@@ -1,0 +1,2 @@
+stashapp-tools>=0.2.48
+requests>=2.28
