@@ -43,6 +43,14 @@ present in the official Stash Docker image.
 - **Sync All Favorites** — backfill: pushes the current favorite state of every linked
   performer and studio upstream. Run it once after install, then the hooks keep things
   in sync.
+- **Pull Favorites from StashDB** — reverse sync: marks local performers/studios as
+  favorite when you've favorited them on a stash-box. This is **additive** — it only sets
+  favorites, never removes them, so it won't fight the forward push or undo local state.
+  Hooks can't fire on stash-box-side changes, so run this manually (or via Stash's
+  scheduled tasks) whenever you want to pull in favorites made on the StashDB website.
+
+Together the hook (Stash → stash-box) and this task (stash-box → Stash) make favorites
+two-way.
 
 ## Notes
 

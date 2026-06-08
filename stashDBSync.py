@@ -49,6 +49,18 @@ query AllStudios($filter: FindFilterType!) {
 }
 """
 
+# Stash mutations to set favorite locally (used by the reverse pull task).
+PERFORMER_UPDATE = """
+mutation PerformerUpdate($id: ID!, $favorite: Boolean!) {
+  performerUpdate(input: { id: $id, favorite: $favorite }) { id }
+}
+"""
+STUDIO_UPDATE = """
+mutation StudioUpdate($id: ID!, $favorite: Boolean!) {
+  studioUpdate(input: { id: $id, favorite: $favorite }) { id }
+}
+"""
+
 # Mutations against the stash-box (StashDB and compatible).
 FAVORITE_PERFORMER = """
 mutation FavoritePerformer($id: ID!, $favorite: Boolean!) {
@@ -61,6 +73,24 @@ mutation FavoriteStudio($id: ID!, $favorite: Boolean!) {
 }
 """
 
+# Stash-box queries for the reverse pull: who has the current user favorited.
+QUERY_FAV_PERFORMERS = """
+query FavPerformers($page: Int!, $per_page: Int!) {
+  queryPerformers(input: { is_favorite: true, page: $page, per_page: $per_page }) {
+    count
+    performers { id }
+  }
+}
+"""
+QUERY_FAV_STUDIOS = """
+query FavStudios($page: Int!, $per_page: Int!) {
+  queryStudios(input: { is_favorite: true, page: $page, per_page: $per_page }) {
+    count
+    studios { id }
+  }
+}
+"""
+
 # Per kind: which Stash query, which stash-box mutation, and its root field name.
 KINDS = {
     "performer": {
@@ -70,6 +100,10 @@ KINDS = {
         "page_root": "findPerformers",
         "page_items": "performers",
         "mutation": FAVORITE_PERFORMER,
+        "stashbox_fav_query": QUERY_FAV_PERFORMERS,
+        "stashbox_fav_root": "queryPerformers",
+        "stashbox_fav_items": "performers",
+        "stash_update": PERFORMER_UPDATE,
     },
     "studio": {
         "find_one": FIND_STUDIO,
@@ -78,6 +112,10 @@ KINDS = {
         "page_root": "findStudios",
         "page_items": "studios",
         "mutation": FAVORITE_STUDIO,
+        "stashbox_fav_query": QUERY_FAV_STUDIOS,
+        "stashbox_fav_root": "queryStudios",
+        "stashbox_fav_items": "studios",
+        "stash_update": STUDIO_UPDATE,
     },
 }
 
@@ -211,6 +249,78 @@ def sync_all_kind(stash, kind, boxes, verbose):
     log.info(f"Sync All: pushed {total_synced} favorite link(s) for {kind}s")
 
 
+def fetch_stashbox_favorites(box, spec):
+    """Return the set of remote ids the user has favorited on one stash-box."""
+    favorited = set()
+    page = 1
+    while True:
+        data = stashbox_call(
+            box["endpoint"], box["api_key"], spec["stashbox_fav_query"],
+            {"page": page, "per_page": PAGE_SIZE},
+        ) or {}
+        result = data.get(spec["stashbox_fav_root"]) or {}
+        items = result.get(spec["stashbox_fav_items"]) or []
+        if not items:
+            break
+        favorited.update(item["id"] for item in items)
+        if len(items) < PAGE_SIZE:
+            break
+        page += 1
+    return favorited
+
+
+def pull_favorites_kind(stash, kind, boxes, verbose):
+    """Reverse sync: mark local entities favorite when favorited upstream (additive only)."""
+    spec = KINDS[kind]
+
+    # endpoint(normalized) -> set of remote ids favorited on that box
+    favorited_by_endpoint = {}
+    for box in boxes.values():
+        if not box.get("api_key"):
+            continue
+        try:
+            ids = fetch_stashbox_favorites(box, spec)
+        except Exception as e:
+            log.error(f"Failed to read {kind} favorites from {box.get('name') or box['endpoint']}: {e}")
+            continue
+        favorited_by_endpoint[normalize_endpoint(box["endpoint"])] = ids
+        log.info(f"{box.get('name') or box['endpoint']}: {len(ids)} favorited {kind}(s) upstream")
+
+    if not any(favorited_by_endpoint.values()):
+        return
+
+    updated = 0
+    page = 1
+    while True:
+        result = (stash.call_GQL(
+            spec["page_query"],
+            {"filter": {"page": page, "per_page": PAGE_SIZE, "sort": "id", "direction": "ASC"}},
+        ) or {}).get(spec["page_root"]) or {}
+        items = result.get(spec["page_items"]) or []
+        if not items:
+            break
+        for entity in items:
+            if entity.get("favorite"):
+                continue  # additive: never unfavorite
+            matched = any(
+                sid.get("stash_id") in favorited_by_endpoint.get(normalize_endpoint(sid.get("endpoint")), ())
+                for sid in (entity.get("stash_ids") or [])
+            )
+            if not matched:
+                continue
+            name = entity.get("name") or entity.get("id")
+            try:
+                stash.call_GQL(spec["stash_update"], {"id": entity["id"], "favorite": True})
+                updated += 1
+                log.info(f"Favorited {kind} '{name}' locally (favorited upstream)")
+            except Exception as e:
+                log.error(f"Failed to favorite {kind} '{name}' locally: {e}")
+        if len(items) < PAGE_SIZE:
+            break
+        page += 1
+    log.info(f"Pull Favorites: marked {updated} {kind}(s) favorite locally")
+
+
 def main():
     raw = sys.stdin.read()
     try:
@@ -239,6 +349,13 @@ def main():
             sync_all_kind(stash, "performer", boxes, verbose)
         if sync_studios:
             sync_all_kind(stash, "studio", boxes, verbose)
+        return
+
+    if mode == "pullFavorites":
+        if sync_performers:
+            pull_favorites_kind(stash, "performer", boxes, verbose)
+        if sync_studios:
+            pull_favorites_kind(stash, "studio", boxes, verbose)
         return
 
     handle_hook(stash, args.get("hookContext", {}), boxes, sync_performers, sync_studios, verbose)

@@ -11,6 +11,10 @@ tasks:
     description: Pushes the current favorite state of every linked performer and studio up to their stash-boxes.
     defaultArgs:
       mode: syncAll
+  - name: Pull Favorites from StashDB
+    description: Marks local performers and studios as favorite when they are favorited upstream (additive; never unfavorites).
+    defaultArgs:
+      mode: pullFavorites
 settings:
   sync_performers:
     displayName: "Sync Performers"
