@@ -1,0 +1,82 @@
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  release:
+    runs-on: orange-runner
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Parse version
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Bump version in yml
+        run: |
+          sed -i "s/^version: .*/version: ${{ steps.ver.outputs.version }}/" stashDBSync.yml
+
+      - name: Commit version bump
+        run: |
+          git config user.email "ci@codeberg.org"
+          git config user.name "CI"
+          git add stashDBSync.yml
+          git diff --staged --quiet || git commit -m "Bump version to ${{ steps.ver.outputs.version }}"
+          git push origin HEAD:master
+
+      - name: Create zip
+        run: python3 -c "import zipfile; z=zipfile.ZipFile('stashDBSync.zip','w',zipfile.ZIP_DEFLATED); [z.write(f) for f in ('stashDBSync.yml','stashDBSync.py','requirements.txt','README.md')]; z.close()"
+
+      - name: Compute sha256
+        id: sha
+        run: echo "hash=$(sha256sum stashDBSync.zip | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+
+      - name: Delete existing release
+        run: |
+          ID=$(curl -sL \
+            -H "Authorization: token ${{ secrets.CODEBERG_TOKEN }}" \
+            "https://codeberg.org/api/v1/repos/surging9143/StashDBSync/releases/tags/${GITHUB_REF_NAME}" \
+            | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('id',''))" 2>/dev/null || true)
+          if [ -n "$ID" ]; then
+            curl -sL -X DELETE \
+              -H "Authorization: token ${{ secrets.CODEBERG_TOKEN }}" \
+              "https://codeberg.org/api/v1/repos/surging9143/StashDBSync/releases/$ID"
+          fi
+
+      - name: Create release
+        id: release
+        run: |
+          SHA=$(git rev-parse HEAD)
+          RESP=$(curl -sL -X POST \
+            -H "Authorization: token ${{ secrets.CODEBERG_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            "https://codeberg.org/api/v1/repos/surging9143/StashDBSync/releases" \
+            -d "{\"tag_name\":\"${GITHUB_REF_NAME}\",\"name\":\"${GITHUB_REF_NAME}\",\"body\":\"Release ${GITHUB_REF_NAME}\",\"target_commitish\":\"$SHA\",\"draft\":false,\"prerelease\":false}")
+          echo "id=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")" >> $GITHUB_OUTPUT
+
+      - name: Upload zip asset
+        run: |
+          curl -sL -X POST \
+            -H "Authorization: token ${{ secrets.CODEBERG_TOKEN }}" \
+            -H "Content-Type: application/octet-stream" \
+            "https://codeberg.org/api/v1/repos/surging9143/StashDBSync/releases/${{ steps.release.outputs.id }}/assets?name=stashDBSync.zip" \
+            --data-binary "@stashDBSync.zip"
+
+      - name: Update pages index
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          HASH: ${{ steps.sha.outputs.hash }}
+          TAG: ${{ github.ref_name }}
+          CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
+        run: |
+          git config --global user.email "ci@codeberg.org"
+          git config --global user.name "CI"
+          git clone "https://surging9143:${CODEBERG_TOKEN}@codeberg.org/surging9143/pages.git" /tmp/pages
+          export DATE=$(date +"%Y-%m-%d %H:%M:%S")
+          export URL="https://codeberg.org/surging9143/StashDBSync/releases/download/${TAG}/stashDBSync.zip"
+          python3 .forgejo/update_pages.py
+          cd /tmp/pages
+          git add index.yml
+          git diff --staged --quiet || git commit -m "Update stashDBSync to v${VERSION}"
+          git push

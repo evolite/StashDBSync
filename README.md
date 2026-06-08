@@ -11,12 +11,13 @@ configure. A read-only API key is enough.
 
 ## Install
 
-1. Symlink (or copy) this folder into your Stash `plugins` directory:
+1. In Stash, go to **Settings → Plugins → Available Plugins** and click **Add Source**.
+2. Add this source URL (Name and Local Path can be anything):
    ```
-   ln -s /path/to/StashDBSync ~/.stash/plugins/StashDBSync
+   https://surging9143.codeberg.page/index.yml
    ```
-2. In Stash, go to **Settings → Plugins** and click **Reload Plugins**.
-3. Open **StashDB Sync** in that list and turn on **Sync Performers** and **Sync Studios**.
+3. Find **StashDB Sync** under the new source, click **Install**, then turn on
+   **Sync Performers** and **Sync Studios** in its settings.
 
 ## Use
 
