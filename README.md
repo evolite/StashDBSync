@@ -1,58 +1,35 @@
 # StashDB Sync
 
-A [Stash](https://stashapp.cc) plugin that pushes **performer and studio favorites**
-from your local Stash up to the stash-boxes they're linked to (StashDB, ThePornDB,
-FansDB, etc.).
+A [Stash](https://stashapp.cc) plugin that keeps your **performer and studio favorites**
+in sync with StashDB (and other stash-boxes).
 
-Favorite a performer or studio in Stash → it gets favorited on the matching stash-box.
-Unfavorite it → it gets unfavorited upstream. The sync is one-directional
-(Stash → stash-box) and idempotent.
+- Favorite someone in Stash → they get favorited on StashDB too.
+- Favorited them on the StashDB website? Pull those back into Stash with one click.
 
-## How it works
-
-On every `Performer.Update.Post` / `Studio.Update.Post` hook, the plugin:
-
-1. Reads the entity's current `favorite` state and its `stash_ids`.
-2. For each `stash_id`, finds the configured stash-box with a matching `endpoint`.
-3. Calls `favoritePerformer` / `favoriteStudio` on that box with the current state.
-
-It uses the API keys you've already configured under
-**Stash → Settings → Metadata Providers → Stash-boxes**, so there's nothing extra to
-set up. Entities with no `stash_ids` (or no matching configured box) are skipped
-silently — enable **Verbose Logging** to see those skips.
-
-> A read-only (READ role) stash-box API key is sufficient — favorites are per-user data,
-> not database edits.
+It uses the stash-box API keys you've already set up in Stash, so there's nothing extra to
+configure. A read-only API key is enough.
 
 ## Install
 
-1. Copy or symlink this directory into your Stash `plugins` folder, e.g.:
+1. Symlink (or copy) this folder into your Stash `plugins` directory:
    ```
    ln -s /path/to/StashDBSync ~/.stash/plugins/StashDBSync
    ```
-2. In Stash: **Settings → Plugins → Reload Plugins**.
-3. Configure under **Settings → Plugins → StashDB Sync**:
-   - **Sync Performers** / **Sync Studios** — enable each entity type.
-   - **Verbose Logging** — log skipped entities too.
+2. In Stash, go to **Settings → Plugins** and click **Reload Plugins**.
+3. Open **StashDB Sync** in that list and turn on **Sync Performers** and **Sync Studios**.
 
-Requires the Python deps in `requirements.txt` (`stashapp-tools`, `requests`), which are
-present in the official Stash Docker image.
+## Use
 
-## Tasks
+Once enabled, favoriting a performer or studio in Stash syncs upstream automatically.
 
-- **Sync All Favorites** — backfill: pushes the current favorite state of every linked
-  performer and studio upstream. Run it once after install, then the hooks keep things
-  in sync.
-- **Pull Favorites from StashDB** — reverse sync: marks local performers/studios as
-  favorite when you've favorited them on a stash-box. This is **additive** — it only sets
-  favorites, never removes them, so it won't fight the forward push or undo local state.
-  Hooks can't fire on stash-box-side changes, so run this manually (or via Stash's
-  scheduled tasks) whenever you want to pull in favorites made on the StashDB website.
+Two tasks are available under **Settings → Tasks** (and in the plugin's settings):
 
-Together the hook (Stash → stash-box) and this task (stash-box → Stash) make favorites
-two-way.
+- **Sync All Favorites** — push all your current Stash favorites up to StashDB. Run once
+  after installing.
+- **Pull Favorites from StashDB** — bring favorites you made on the StashDB website into
+  Stash. Run it whenever you want; it only adds favorites, never removes them.
 
-## Notes
+## Settings
 
-- No feedback loop: writing to a stash-box never triggers a local Stash hook.
-- Multiple stash-boxes per entity are all synced.
+- **Sync Performers / Sync Studios** — turn each on or off.
+- **Verbose Logging** — also log items that were skipped (e.g. not linked to StashDB).
