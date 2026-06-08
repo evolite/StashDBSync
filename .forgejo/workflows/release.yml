@@ -6,6 +6,10 @@ on:
 jobs:
   release:
     runs-on: orange-runner
+    env:
+      # -f fail on HTTP errors, --http1.1 avoids HTTP/2 partial-file drops (curl 18),
+      # retry transient transport/HTTP errors so a single dropped connection doesn't kill the release.
+      CURL_OPTS: "-fsSL --http1.1 --retry 5 --retry-all-errors --retry-delay 3"
     steps:
       - uses: actions/checkout@v3
 
@@ -34,12 +38,12 @@ jobs:
 
       - name: Delete existing release
         run: |
-          ID=$(curl -sL \
+          ID=$(curl $CURL_OPTS \
             -H "Authorization: token ${{ secrets.CODEBERG_TOKEN }}" \
             "https://codeberg.org/api/v1/repos/surging9143/StashDBSync/releases/tags/${GITHUB_REF_NAME}" \
             | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('id',''))" 2>/dev/null || true)
           if [ -n "$ID" ]; then
-            curl -sL -X DELETE \
+            curl $CURL_OPTS -X DELETE \
               -H "Authorization: token ${{ secrets.CODEBERG_TOKEN }}" \
               "https://codeberg.org/api/v1/repos/surging9143/StashDBSync/releases/$ID"
           fi
@@ -48,16 +52,22 @@ jobs:
         id: release
         run: |
           SHA=$(git rev-parse HEAD)
-          RESP=$(curl -sL -X POST \
+          RESP=$(curl $CURL_OPTS -X POST \
             -H "Authorization: token ${{ secrets.CODEBERG_TOKEN }}" \
             -H "Content-Type: application/json" \
             "https://codeberg.org/api/v1/repos/surging9143/StashDBSync/releases" \
             -d "{\"tag_name\":\"${GITHUB_REF_NAME}\",\"name\":\"${GITHUB_REF_NAME}\",\"body\":\"Release ${GITHUB_REF_NAME}\",\"target_commitish\":\"$SHA\",\"draft\":false,\"prerelease\":false}")
-          echo "id=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")" >> $GITHUB_OUTPUT
+          ID=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
+          if [ -z "$ID" ]; then
+            echo "Release creation failed. Response was:" >&2
+            echo "$RESP" >&2
+            exit 1
+          fi
+          echo "id=$ID" >> $GITHUB_OUTPUT
 
       - name: Upload zip asset
         run: |
-          curl -sL -X POST \
+          curl $CURL_OPTS -X POST \
             -H "Authorization: token ${{ secrets.CODEBERG_TOKEN }}" \
             -H "Content-Type: application/octet-stream" \
             "https://codeberg.org/api/v1/repos/surging9143/StashDBSync/releases/${{ steps.release.outputs.id }}/assets?name=stashDBSync.zip" \
