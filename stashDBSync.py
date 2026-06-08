@@ -288,13 +288,20 @@ def pull_favorites_kind(stash, kind, boxes, verbose):
     for box in boxes.values():
         if not box.get("api_key"):
             continue
+        name = box.get("name") or box["endpoint"]
         try:
             ids = fetch_stashbox_favorites(box, spec)
         except Exception as e:
-            log.error(f"Failed to read {kind} favorites from {box.get('name') or box['endpoint']}: {e}")
+            # Reverse pull is GraphQL-only. Not every stash-box exposes a favorites
+            # listing in a StashDB-compatible way (e.g. ThePornDB has no studio query
+            # and an unreliable favorite filter), so skip those cleanly rather than
+            # erroring. Detail is available with verbose logging.
+            log.info(f"Skipping {kind} favorites from {name}: not supported via GraphQL")
+            if verbose:
+                log.info(f"  ({name} {kind} query error: {e})")
             continue
         favorited_by_endpoint[normalize_endpoint(box["endpoint"])] = ids
-        log.info(f"{box.get('name') or box['endpoint']}: {len(ids)} favorited {kind}(s) upstream")
+        log.info(f"{name}: {len(ids)} favorited {kind}(s) upstream")
 
     if not any(favorited_by_endpoint.values()):
         return
