@@ -219,6 +219,16 @@ def handle_hook(stash, hook_ctx, boxes, sync_performers, sync_studios, verbose):
             log.info(f"Skip {kind} sync: disabled in settings")
         return
 
+    # Only act when `favorite` was actually part of this update. The hook fires on every
+    # edit, so without this an unrelated change (scrape, identify, tag edit) would push the
+    # local favorite state and could clobber the upstream value. `input` holds the mutation's
+    # fields; if it's missing (older Stash), fall back to syncing to stay safe.
+    update_input = hook_ctx.get("input")
+    if isinstance(update_input, dict) and "favorite" not in update_input:
+        if verbose:
+            log.info(f"Skip {kind} {entity_id}: favorite not part of this update")
+        return
+
     spec = KINDS[kind]
     entity = (stash.call_GQL(spec["find_one"], {"id": entity_id}) or {}).get(spec["find_one_root"])
     if not entity:
