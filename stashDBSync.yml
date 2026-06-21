@@ -20,10 +20,12 @@ settings:
     displayName: "Sync Performers"
     description: "When a performer is updated, push its favorite state to matching stash-boxes."
     type: BOOLEAN
+    default: true
   sync_studios:
     displayName: "Sync Studios"
     description: "When a studio is updated, push its favorite state to matching stash-boxes."
     type: BOOLEAN
+    default: true
   verbose:
     displayName: "Verbose Logging"
     description: "Log skipped entities (no stash_id, no matching stash-box) in addition to actual syncs."

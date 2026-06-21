@@ -349,8 +349,8 @@ def main():
     stash = StashInterface(payload["server_connection"])
 
     settings = stash.get_configuration().get("plugins", {}).get(PLUGIN_ID, {})
-    sync_performers = parse_bool(settings.get("sync_performers"), True)
-    sync_studios = parse_bool(settings.get("sync_studios"), True)
+    sync_performers = parse_bool(settings.get("sync_performers"), False)
+    sync_studios = parse_bool(settings.get("sync_studios"), False)
     verbose = parse_bool(settings.get("verbose"), False)
 
     boxes = load_stash_boxes(stash)
