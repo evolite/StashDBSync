@@ -349,6 +349,9 @@ def main():
     stash = StashInterface(payload["server_connection"])
 
     settings = stash.get_configuration().get("plugins", {}).get(PLUGIN_ID, {})
+    # Stash omits a false boolean from the config map, and SettingConfig has no
+    # `default` field, so absent == off. Keep the fallback False so unchecking a
+    # toggle reliably stops syncing (opt-in). See commit 6cc6885.
     sync_performers = parse_bool(settings.get("sync_performers"), False)
     sync_studios = parse_bool(settings.get("sync_studios"), False)
     verbose = parse_bool(settings.get("verbose"), False)
