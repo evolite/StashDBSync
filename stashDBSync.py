@@ -178,24 +178,27 @@ def sync_entity(kind, entity, boxes, verbose):
             log.info(f"Skip {kind} '{name}': no stash_ids")
         return
 
-    synced = 0
-    for sid in stash_ids:
-        remote_id = sid.get("stash_id")
-        box = boxes.get(normalize_endpoint(sid.get("endpoint")))
-        if not box:
-            if verbose:
-                log.info(f"Skip {kind} '{name}' @ {sid.get('endpoint')}: no matching configured stash-box")
-            continue
-        if not box.get("api_key"):
-            log.warning(f"Skip {kind} '{name}' @ {box.get('name') or box.get('endpoint')}: stash-box has no API key configured")
-            continue
-        try:
-            stashbox_call(box["endpoint"], box["api_key"], spec["mutation"], {"id": remote_id, "favorite": favorite})
-            synced += 1
-            log.info(f"{'Favorited' if favorite else 'Unfavorited'} {kind} '{name}' on {box.get('name') or box['endpoint']}")
-        except Exception as e:
-            log.error(f"Failed to sync {kind} '{name}' to {box.get('name') or box['endpoint']}: {e}")
-    return synced
+    return sum(_sync_link(kind, name, spec, favorite, sid, boxes, verbose) for sid in stash_ids)
+
+
+def _sync_link(kind, name, spec, favorite, sid, boxes, verbose):
+    """Push favorite state for one stash_id link. Returns 1 if pushed, else 0."""
+    box = boxes.get(normalize_endpoint(sid.get("endpoint")))
+    if not box:
+        if verbose:
+            log.info(f"Skip {kind} '{name}' @ {sid.get('endpoint')}: no matching configured stash-box")
+        return 0
+    box_name = box.get("name") or box.get("endpoint")
+    if not box.get("api_key"):
+        log.warning(f"Skip {kind} '{name}' @ {box_name}: stash-box has no API key configured")
+        return 0
+    try:
+        stashbox_call(box["endpoint"], box["api_key"], spec["mutation"], {"id": sid.get("stash_id"), "favorite": favorite})
+    except Exception as e:
+        log.error(f"Failed to sync {kind} '{name}' to {box_name}: {e}")
+        return 0
+    log.info(f"{'Favorited' if favorite else 'Unfavorited'} {kind} '{name}' on {box_name}")
+    return 1
 
 
 def handle_hook(stash, hook_ctx, boxes, sync_performers, sync_studios, verbose):
@@ -279,11 +282,8 @@ def fetch_stashbox_favorites(box, spec):
     return favorited
 
 
-def pull_favorites_kind(stash, kind, boxes, verbose):
-    """Reverse sync: mark local entities favorite when favorited upstream (additive only)."""
-    spec = KINDS[kind]
-
-    # endpoint(normalized) -> set of remote ids favorited on that box
+def collect_upstream_favorites(kind, spec, boxes, verbose):
+    """normalized endpoint -> set of remote ids favorited on that box."""
     favorited_by_endpoint = {}
     for box in boxes.values():
         if not box.get("api_key"):
@@ -302,7 +302,31 @@ def pull_favorites_kind(stash, kind, boxes, verbose):
             continue
         favorited_by_endpoint[normalize_endpoint(box["endpoint"])] = ids
         log.info(f"{name}: {len(ids)} favorited {kind}(s) upstream")
+    return favorited_by_endpoint
 
+
+def favorite_locally(stash, kind, spec, entity, favorited_by_endpoint):
+    """Favorite `entity` locally if it is favorited upstream. Returns True if updated."""
+    matched = any(
+        sid.get("stash_id") in favorited_by_endpoint.get(normalize_endpoint(sid.get("endpoint")), ())
+        for sid in (entity.get("stash_ids") or [])
+    )
+    if not matched:
+        return False
+    name = entity.get("name") or entity.get("id")
+    try:
+        stash.call_GQL(spec["stash_update"], {"id": entity["id"], "favorite": True})
+    except Exception as e:
+        log.error(f"Failed to favorite {kind} '{name}' locally: {e}")
+        return False
+    log.info(f"Favorited {kind} '{name}' locally (favorited upstream)")
+    return True
+
+
+def pull_favorites_kind(stash, kind, boxes, verbose):
+    """Reverse sync: mark local entities favorite when favorited upstream (additive only)."""
+    spec = KINDS[kind]
+    favorited_by_endpoint = collect_upstream_favorites(kind, spec, boxes, verbose)
     if not any(favorited_by_endpoint.values()):
         return
 
@@ -316,22 +340,11 @@ def pull_favorites_kind(stash, kind, boxes, verbose):
         items = result.get(spec["page_items"]) or []
         if not items:
             break
-        for entity in items:
-            if entity.get("favorite"):
-                continue  # additive: never unfavorite
-            matched = any(
-                sid.get("stash_id") in favorited_by_endpoint.get(normalize_endpoint(sid.get("endpoint")), ())
-                for sid in (entity.get("stash_ids") or [])
-            )
-            if not matched:
-                continue
-            name = entity.get("name") or entity.get("id")
-            try:
-                stash.call_GQL(spec["stash_update"], {"id": entity["id"], "favorite": True})
-                updated += 1
-                log.info(f"Favorited {kind} '{name}' locally (favorited upstream)")
-            except Exception as e:
-                log.error(f"Failed to favorite {kind} '{name}' locally: {e}")
+        # additive: never unfavorite
+        updated += sum(
+            favorite_locally(stash, kind, spec, e, favorited_by_endpoint)
+            for e in items if not e.get("favorite")
+        )
         if len(items) < PAGE_SIZE:
             break
         page += 1
