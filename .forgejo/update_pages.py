@@ -1,4 +1,5 @@
-import re, os
+import os
+import re
 
 version = os.environ['VERSION']
 hash_   = os.environ['HASH']
