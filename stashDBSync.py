@@ -194,7 +194,7 @@ def _sync_link(kind, name, spec, favorite, sid, boxes, verbose):
         return 0
     try:
         stashbox_call(box["endpoint"], box["api_key"], spec["mutation"], {"id": sid.get("stash_id"), "favorite": favorite})
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - log and skip so one failure does not abort the sync
         log.error(f"Failed to sync {kind} '{name}' to {box_name}: {e}")
         return 0
     log.info(f"{'Favorited' if favorite else 'Unfavorited'} {kind} '{name}' on {box_name}")
@@ -291,7 +291,7 @@ def collect_upstream_favorites(kind, spec, boxes, verbose):
         name = box.get("name") or box["endpoint"]
         try:
             ids = fetch_stashbox_favorites(box, spec)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - log and skip so one failure does not abort the sync
             # Reverse pull is GraphQL-only. Not every stash-box exposes a favorites
             # listing in a StashDB-compatible way (e.g. ThePornDB has no studio query
             # and an unreliable favorite filter), so skip those cleanly rather than
@@ -316,7 +316,7 @@ def favorite_locally(stash, kind, spec, entity, favorited_by_endpoint):
     name = entity.get("name") or entity.get("id")
     try:
         stash.call_GQL(spec["stash_update"], {"id": entity["id"], "favorite": True})
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - log and skip so one failure does not abort the sync
         log.error(f"Failed to favorite {kind} '{name}' locally: {e}")
         return False
     log.info(f"Favorited {kind} '{name}' locally (favorited upstream)")
