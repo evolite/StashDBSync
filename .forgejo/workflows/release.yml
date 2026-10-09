@@ -11,7 +11,7 @@ jobs:
       # retry transient transport/HTTP errors so a single dropped connection doesn't kill the release.
       CURL_OPTS: "-fsSL --http1.1 --retry 5 --retry-all-errors --retry-delay 3"
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Parse version
         id: ver
