@@ -1,6 +1,6 @@
 name: StashDB Sync
 description: Pushes performer and studio favorites from Stash up to the matching stash-boxes (StashDB, etc.) via their stash_ids.
-url: https://codeberg.org/surging9143/StashDBSync
+url: https://github.com/evolite/StashDBSync
 version: 0.1.6
 exec:
   - python3

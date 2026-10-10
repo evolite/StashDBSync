@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      # -f fail on HTTP errors, --http1.1 avoids HTTP/2 partial-file drops (curl 18),
+      # retry transient transport/HTTP errors so a single dropped connection doesn't kill the release.
+      CURL_OPTS: "-fsSL --http1.1 --retry 5 --retry-all-errors --retry-delay 3"
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Parse version
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Bump version in yml
+        run: |
+          sed -i "s/^version: .*/version: ${{ steps.ver.outputs.version }}/" stashDBSync.yml
+
+      - name: Commit version bump
+        run: |
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add stashDBSync.yml
+          git diff --staged --quiet || git commit -m "Bump version to ${{ steps.ver.outputs.version }}"
+          git push origin HEAD:master
+
+      - name: Create zip
+        run: python3 -c "import zipfile; z=zipfile.ZipFile('stashDBSync.zip','w',zipfile.ZIP_DEFLATED); [z.write(f) for f in ('stashDBSync.yml','stashDBSync.py','requirements.txt','README.md')]; z.close()"
+
+      - name: Compute sha256
+        id: sha
+        run: echo "hash=$(sha256sum stashDBSync.zip | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NOTES="Release $GITHUB_REF_NAME"
+          gh release delete "$GITHUB_REF_NAME" --yes 2>/dev/null || true
+          gh release create "$GITHUB_REF_NAME" stashDBSync.zip --title "$GITHUB_REF_NAME" --notes "$NOTES"
+
+      - name: Update pages index
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          HASH: ${{ steps.sha.outputs.hash }}
+          TAG: ${{ github.ref_name }}
+          CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
+        run: |
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git clone "https://surging9143:${CODEBERG_TOKEN}@codeberg.org/surging9143/pages.git" /tmp/pages
+          export DATE=$(date +"%Y-%m-%d %H:%M:%S")
+          export URL="https://github.com/evolite/StashDBSync/releases/download/${TAG}/stashDBSync.zip"
+          python3 .github/update_pages.py
+          cd /tmp/pages
+          git add index.yml
+          git diff --staged --quiet || git commit -m "Update stashDBSync to v${VERSION}"
+          git push
